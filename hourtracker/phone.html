@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hour Tracker</title>
+<style>
+/*@base.css*/
+/*@reminders.css*/
+
+html { font-size: 16px; }
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+h1 { font-family: inherit; }
+
+.tabs {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 1.3rem;
+  padding: .75rem 1rem 0; background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+  padding: .5rem .1rem .55rem; color: var(--muted); font-weight: 600; font-size: 1rem;
+}
+.tabs button[aria-selected="true"] { color: var(--text); border-color: var(--accent); }
+#saved { margin-left: auto; font-size: .85rem; color: var(--muted); opacity: 0; transition: opacity .3s; }
+#saved.on { opacity: 1; }
+
+.view {
+  max-width: 34rem; margin: 0 auto; padding: 1.1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 1rem;
+}
+#log { min-height: calc(100vh - 3.2rem); }
+.title { display: flex; align-items: baseline; gap: .6rem; margin-top: .1rem; flex-wrap: wrap; }
+h1 { font-size: 2rem; }
+.dur { font-size: .8rem; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: .12rem .55rem; border-radius: 99px; }
+.strip { display: flex; gap: 3px; margin-top: .8rem; }
+.strip i {
+  flex: 1 1 0; min-width: 0; height: 2.1rem; border-radius: .35rem; display: grid; place-items: center;
+  font-style: normal; font-size: .7rem; font-variant-numeric: tabular-nums; overflow: hidden;
+  color: var(--muted); box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.strip i.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: none; }
+.strip i.edge { background: var(--accent); color: var(--on-accent); }
+#hint { margin-top: .45rem; }
+.chips button { padding: .5rem .9rem; font-size: .95rem; }
+.field { min-height: 6rem; }
+#activityField { flex: none; height: 7.5rem; }
+#remarkField { flex: none; height: 7.5rem; }
+.seg button { padding: .62rem 0; }
+#log .actions { position: sticky; bottom: 0; padding: .6rem 0 calc(.2rem + env(safe-area-inset-bottom)); background: var(--bg); margin-top: auto; }
+#log .primary { padding: .75rem 1.5rem; font-size: 1.05rem; }
+kbd { display: none; }
+
+#caught { text-align: center; padding: 2.5rem 0 1rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+#caught svg { width: 3.6rem; height: 3.6rem; color: var(--accent); }
+#caught h1 { font-size: 1.6rem; }
+
+.card { border: 1px solid var(--line); background: var(--surface); border-radius: .9rem; padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: .7rem; }
+.card h2 { font-size: 1rem; }
+.card ol { padding-left: 1.2rem; display: flex; flex-direction: column; gap: .55rem; }
+.card a { color: var(--accent); font-weight: 600; }
+.card code { font-size: .85rem; background: var(--bg); padding: .1rem .35rem; border-radius: .3rem; user-select: all; overflow-wrap: anywhere; }
+.card .row { display: flex; flex-wrap: wrap; gap: .4rem; }
+.card .ghost { margin-left: -.85rem; }
+
+dialog { width: calc(100vw - 1.5rem); }
+#remMode { min-width: 0; grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+#remMode button:nth-child(3) { border-left: 0; }
+#remMode button:nth-child(n+3) { border-top: 1px solid var(--line); }
+.remfield > span { width: 100%; }
+</style>
+</head>
+<body>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-view="log" aria-selected="true">Log</button>
+  <button role="tab" data-view="reminders">Reminders</button>
+  <span id="saved" aria-live="polite">Saved</span>
+</nav>
+
+<main class="view" id="log">
+  <p class="hint" id="loading">Loading…</p>
+  <div id="entry" hidden>
+    <header>
+      <div class="eyebrow" id="day"></div>
+      <div class="title"><h1 id="range"></h1><span class="dur" id="dur" hidden></span></div>
+      <div id="split" hidden>
+        <div class="strip" id="strip" role="slider" tabindex="0" aria-label="Hours covered by this entry"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </header>
+  </div>
+  <div class="form" id="form"></div>
+  <footer class="actions" id="logActions" hidden>
+    <button class="primary" id="save">Save</button>
+    <button class="ghost" id="skip">Skip</button>
+    <span class="msg" id="error" role="alert"></span>
+  </footer>
+  <div id="caught" hidden>
+    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="20"/><path d="M15 24.5l6.5 6.5L33.5 18"/></svg>
+    <h1>All caught up</h1>
+    <p class="hint" id="lastLogged"></p>
+    <button class="ghost" id="refresh">Check again</button>
+  </div>
+  <section class="card" id="notifCard" hidden>
+    <h2 id="notifTitle"></h2>
+    <p id="notifText"></p>
+    <div class="row"><button class="ghost" id="testNotify" type="button">Send a test</button>
+      <button class="ghost" id="hideCard" type="button">Done, hide this</button></div>
+  </section>
+</main>
+
+<main class="view" id="reminders" hidden><div id="remHost"></div></main>
+
+<script>
+/*@form.js*/
+/*@reminders.js*/
+
+const K = "%%K%%";
+const call = (name, ...args) => (window.mockCall || ((n, ...a) => new Promise((ok, fail) =>
+  google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[n](K, ...a))))(name, ...args);
+const REMOTE = { reminders: "pageReminders", save_reminder: "pageSaveReminder",
+                 toggle_reminder: "pageToggleReminder", delete_reminder: "pageDeleteReminder" };
+const remCall = (name, ...args) => call(REMOTE[name], ...args);
+function onRemSaved() { saved(); }
+const remDefaultDelete = () => !S || S.delete_done_once !== false;
+$("remHint").textContent = "Also copied to your Google Calendar, so this phone alerts even without internet.";
+
+const parse = s => new Date(s.replace(" ", "T"));
+const hhmm = d => pad(d.getHours()) + ":" + pad(d.getMinutes());
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+let S, count = 1, busy = false;
+
+function saved() {
+  $("saved").classList.add("on");
+  clearTimeout(saved.t); saved.t = setTimeout(() => $("saved").classList.remove("on"), 1400);
+}
+function show(view) {
+  for (const v of ["log", "reminders"]) {
+    $(v).hidden = v !== view;
+    document.querySelector(`.tabs [data-view="${v}"]`).setAttribute("aria-selected", v === view);
+  }
+  if (view === "reminders") loadReminders(S && S.reminders);
+}
+for (const t of document.querySelectorAll(".tabs button")) t.onclick = () => show(t.dataset.view);
+
+/* ---------- logging */
+function setCount(n) {
+  const hours = S.hours, total = hours.length;
+  count = Math.max(1, Math.min(total, n));
+  const start = parse(hours[0]), end = new Date(parse(hours[count - 1]).getTime() + 3600e3);
+  $("range").textContent = hhmm(start) + " – " + hhmm(end);
+  $("day").textContent = nice(iso(start));
+  $("dur").hidden = count < 2; $("dur").textContent = count + " h";
+  $("split").hidden = total < 2;
+  [...$("strip").children].forEach((c, i) => { c.className = i < count ? (i === count - 1 ? "on edge" : "on") : ""; });
+  $("hint").textContent = count === total ? total + " hours to log · tap an hour to log a shorter part first"
+                                          : "Logging " + count + " of " + total + " hours · the rest comes next";
+}
+function load(state) {
+  S = state;
+  $("loading").hidden = true;
+  const any = S.hours.length > 0;
+  $("entry").hidden = $("logActions").hidden = !any; $("form").hidden = !any; $("caught").hidden = any;
+  $("form").style.display = any ? "" : "none";
+  if (any) {
+    const strip = $("strip"); strip.innerHTML = "";
+    for (const h of S.hours) strip.append(el("i", null, pad(parse(h).getHours())));
+    mountForm($("form"), S.categories, S.fields);
+    setCount(S.hours.length);
+    fillForm({ category: S.category, prod: S.prod, sat: S.sat });
+    $("error").textContent = "";
+  } else {
+    const m = /^h(\d{4})(\d{2})(\d{2})-(\d{2})$/.exec(S.latest || "");
+    $("lastLogged").textContent = m ? "Last logged: " + nice(m[1] + "-" + m[2] + "-" + m[3]) + ", " + m[4] + ":00 – " + pad((+m[4] + 1) % 24) + ":00" : "";
+  }
+  const tg = S.via === "telegram";
+  $("notifCard").hidden = !S.notify || !S.channel_ready || store.get("ht-card-hidden") === S.via + S.bot;
+  $("notifTitle").textContent = tg ? "Notifications come from Telegram" : "Notifications come by email";
+  $("notifText").textContent = tg
+    ? "@" + S.bot + " messages you when an hour still needs logging. Tap “Log it” in the message to come here."
+    : "When an hour still needs logging, you get an email at the Gmail address that owns your sheet. Turn on Gmail notifications on this phone to see it.";
+  if (!$("reminders").hidden) loadReminders(S.reminders);
+}
+async function refresh() {
+  try { load(await call("pageState")); }
+  catch (e) { $("loading").hidden = false; $("loading").textContent = "Could not load: " + (e && e.message || e); }
+}
+async function submit(skip) {
+  if (busy) return;
+  busy = true; document.body.classList.add("busy");
+  try { load(await call("pageSave", count, skip ? null : readForm())); saved(); window.scrollTo(0, 0); }
+  catch (e) { $("error").textContent = "Could not save. Check the connection and try again."; }
+  finally { busy = false; document.body.classList.remove("busy"); }
+}
+$("save").onclick = () => submit(false);
+$("skip").onclick = () => submit(true);
+$("refresh").onclick = refresh;
+$("strip").onclick = e => { const i = [...$("strip").children].indexOf(e.target.closest("i")); if (i >= 0) setCount(i + 1); };
+$("testNotify").onclick = async () => {
+  const b = $("testNotify"); b.textContent = "Sending…";
+  try { b.textContent = (await call("pageTestNotify")) ? "Sent. Did it arrive?" : "Could not send"; }
+  catch (e) { b.textContent = "Could not send"; }
+  setTimeout(() => { b.textContent = "Send a test"; }, 5000);
+};
+$("hideCard").onclick = () => { store.set("ht-card-hidden", S.via + S.bot); $("notifCard").hidden = true; };
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !busy && !$("remDlg").open) refresh(); });
+
+refresh();
+</script>
+</body>
+</html>

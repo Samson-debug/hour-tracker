@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hour Tracker</title>
+<style>
+/*@base.css*/
+
+.tabs { display: flex; align-items: center; max-width: 46rem; margin: 0 auto; padding: .9rem 1.5rem 0; }
+.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+  padding: .45rem .1rem; margin-right: 1.3rem; color: var(--muted); font-weight: 600;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--text); border-color: var(--accent); }
+#saved { margin-left: auto; font-size: .8rem; color: var(--muted); opacity: 0; transition: opacity .3s; }
+#saved.on { opacity: 1; }
+.view { max-width: 46rem; margin: 0 auto; padding: 1.3rem 1.5rem 1.8rem; }
+
+/* ---- history: one day at a time */
+.daynav { display: flex; align-items: center; gap: .2rem; position: relative; margin-left: -.5rem; }
+.nav { font-size: 1.5rem; line-height: 1; width: 2.2rem; height: 2.2rem; padding: 0 0 .2rem; }
+.daybtn { background: none; border: 0; border-radius: .6rem; padding: .1rem .5rem; cursor: pointer; }
+.daybtn:hover { background: var(--line); }
+#datePick { position: absolute; left: 3rem; top: 100%; width: 0; height: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+#todayBtn { margin-left: auto; }
+#summary { margin: .35rem 0 1rem; }
+
+.blocks { display: flex; flex-direction: column; gap: .35rem; }
+.block {
+  display: grid; grid-template-columns: 7.4rem 1fr auto; align-items: center; gap: .8rem;
+  width: 100%; text-align: left; padding: .62rem .85rem; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-radius: .7rem;
+  transition: border-color .12s;
+}
+.block:hover { border-color: var(--accent); }
+.block .time { font-weight: 600; font-size: .9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.block .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block .tag {
+  display: inline-block; font-size: .78rem; font-weight: 600; margin-right: .55rem;
+  color: var(--accent); background: var(--accent-soft); padding: .08rem .55rem; border-radius: 99px;
+}
+.block .remark { color: var(--muted); margin-left: .6rem; }
+.block .marks { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.block.empty, .block.skipped { background: transparent; color: var(--muted); }
+.block.empty { border-style: dashed; border-color: var(--line-strong); }
+
+/*@reminders.css*/
+
+/* ---- the editor that opens over a day */
+.edrange {
+  display: flex; align-items: baseline; gap: .5rem; margin-top: .1rem;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 1.8rem; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.edrange select {
+  appearance: none; background: transparent; border: 0; border-bottom: 2px dashed var(--line-strong);
+  border-radius: 0; padding: 0 .1rem; cursor: pointer; font-weight: inherit;
+}
+.edrange select:hover { border-color: var(--accent); }
+.edrange option { font-size: 1rem; font-weight: 400; background: var(--surface); }
+
+/* ---- settings */
+.set { display: flex; flex-direction: column; gap: .65rem; padding: 1.15rem 0; border-top: 1px solid var(--line); }
+.set:first-child { border-top: 0; padding-top: 0; }
+h2 { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.set select, .set input[type="text"], .set input[type="number"] {
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: .55rem;
+  padding: .36rem .6rem; user-select: text;
+}
+.set input[type="number"] { width: 4.6rem; }
+.set input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+#catList { display: flex; flex-direction: column; gap: .3rem; }
+.catrow { display: flex; align-items: center; gap: .25rem; }
+.catrow input { flex: 1; min-width: 0; }
+.icon { width: 2.1rem; height: 2.1rem; padding: 0; display: grid; place-items: center; font-size: 1rem; }
+#theme { max-width: 18rem; }
+
+/* ---- google sheet */
+#sheetLine { flex-wrap: nowrap; align-items: baseline; }
+.dot { flex: none; width: .6rem; height: .6rem; border-radius: 50%; background: var(--line-strong); transform: translateY(-.05rem); }
+.dot.ok { background: #2f9e5b; }
+.dot.warn { background: #d08a1a; }
+.dot.bad { background: var(--danger); }
+#sheetUrl { font-size: .85rem; }
+details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .9rem; width: fit-content; }
+.steps { margin: .7rem 0 .6rem; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .55rem; user-select: text; }
+.steps li { padding-left: .2rem; }
+.steps .primary { display: block; margin-top: .45rem; padding: .45rem .9rem; }
+
+/* ---- first run */
+#welcome { max-width: 34rem; min-height: 100vh; display: flex; align-items: center; }
+.wstep { display: flex; flex-direction: column; gap: .9rem; width: 100%; animation: wswap .28s ease; }
+@keyframes wswap { from { opacity: 0; transform: translateY(6px); } }
+.wstep h1 { white-space: normal; font-size: 1.9rem; }
+.wstep .hint { color: var(--muted); }
+.wstep .actions { margin-top: .6rem; }
+.wicon { width: 3.4rem; height: 3.4rem; color: var(--accent); }
+.wicon svg { width: 100%; height: 100%; }
+.trayicon { display: inline-block; width: .95rem; height: .95rem; border-radius: 50%; background: #4050d2; vertical-align: -.12rem; }
+#wCats button[aria-pressed="false"] { opacity: .55; text-decoration: line-through; }
+#welcome select { background: var(--surface); border: 1px solid var(--line-strong); border-radius: .55rem; padding: .36rem .6rem; }
+#welcome input[type="text"] { background: var(--surface); border: 1px solid var(--line-strong); border-radius: .55rem; padding: .36rem .6rem; flex: 1; }
+#welcome input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+
+/* ---- phone */
+.phone { display: flex; gap: 1.1rem; align-items: flex-start; }
+#phoneQr { flex: none; width: 9.5rem; height: 9.5rem; padding: .45rem; background: #fff; border-radius: .7rem; border: 1px solid var(--line); }
+#phoneQr svg { width: 100%; height: 100%; display: block; }
+.phone .body { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+.phone .ghost { align-self: flex-start; margin-left: -.85rem; }
+#phoneLink { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; user-select: text; }
+#notifyVia { width: 14rem; }
+#tgMsg { color: var(--danger); font-size: .82rem; display: block; margin-top: .3rem; }
+#tgToken { font-size: .85rem; }
+@media (max-width: 30rem) { .phone { flex-direction: column; } }
+
+@media (max-width: 30rem) {
+  .block { grid-template-columns: 1fr auto; row-gap: .15rem; }
+  .block .what { grid-column: 1 / -1; grid-row: 2; }
+}
+</style>
+</head>
+<body>
+<div id="app" hidden>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="history">History</button>
+    <button role="tab" data-view="reminders">Reminders</button>
+    <button role="tab" data-view="settings">Settings</button>
+    <span id="saved" aria-live="polite">Saved</span>
+  </nav>
+
+  <main class="view" id="history">
+    <div class="daynav">
+      <button class="ghost nav" id="prev" aria-label="Previous day" title="Previous day (←)">‹</button>
+      <button class="daybtn" id="dayBtn" title="Pick a date"><h1 id="dayTitle"></h1></button>
+      <input type="date" id="datePick" tabindex="-1" aria-hidden="true">
+      <button class="ghost nav" id="next" aria-label="Next day" title="Next day (→)">›</button>
+      <button class="ghost" id="todayBtn">Today</button>
+    </div>
+    <p class="hint" id="summary"></p>
+    <div class="blocks" id="blocks"></div>
+  </main>
+
+  <main class="view" id="reminders" hidden><div id="remHost"></div></main>
+
+  <main class="view" id="settings" hidden>
+    <section class="set">
+      <h2>Categories</h2>
+      <div id="catList"></div>
+      <div class="catrow">
+        <input type="text" id="catNew" placeholder="Add a category" maxlength="30">
+        <button class="ghost" id="catAdd">Add</button>
+      </div>
+      <p class="hint">Renaming or removing a category does not change hours you already logged.</p>
+    </section>
+    <section class="set">
+      <h2>Also ask for</h2>
+      <div class="chips" id="fields">
+        <button type="button" data-field="remark">Remark</button>
+        <button type="button" data-field="productivity">Productivity</button>
+        <button type="button" data-field="satisfaction">Satisfaction</button>
+      </div>
+      <p class="hint">The category and “What did you do?” are always asked.</p>
+    </section>
+    <section class="set">
+      <h2>When to ask</h2>
+      <label class="line">Ask every <select id="askEvery"></select></label>
+      <div class="line">Stay quiet from <select id="quietStart" aria-label="Quiet from"></select>
+        to <select id="quietEnd" aria-label="Quiet until"></select></div>
+      <div class="line">“Later” waits <input type="number" id="snoozeMin" min="1" max="120" aria-label="Minutes to wait">
+        minutes, up to <input type="number" id="snoozeMax" min="0" max="10" aria-label="Times allowed"> times</div>
+      <p class="hint">The same quiet start and end time means it is never quiet.</p>
+    </section>
+    <section class="set">
+      <h2>Reminders</h2>
+      <div class="line"><label class="line"><input type="checkbox" id="remSound"> Play a sound</label>
+        <button class="ghost" id="remPlay" type="button">Play it</button></div>
+      <div class="line">“Remind me later” waits <input type="number" id="remSnooze" min="1" max="120" aria-label="Minutes to wait"> minutes</div>
+      <label class="line"><input type="checkbox" id="delDoneOnce"> Delete one-time reminders once I mark them done</label>
+      <p class="hint">Each one-time reminder can choose differently in its own editor.</p>
+    </section>
+    <section class="set">
+      <h2>Look</h2>
+      <div class="seg" id="theme" role="radiogroup" aria-label="Theme"></div>
+    </section>
+    <section class="set">
+      <h2>Google Sheet</h2>
+      <p class="line" id="sheetLine"><span class="dot" id="sheetDot"></span><span id="sheetState"></span></p>
+      <div class="catrow">
+        <input type="text" id="sheetUrl" placeholder="Paste the web app link here" spellcheck="false" aria-label="Web app link">
+        <button class="ghost" id="sheetSync">Sync now</button>
+      </div>
+      <details id="sheetHelp">
+        <summary>How to connect a Google Sheet</summary>
+        <ol class="steps" id="stepsCopy" hidden>
+          <li>Open the ready-made sheet and press <b>Make a copy</b>.
+            <button class="primary" id="openTemplate" type="button">Open the ready-made sheet</button></li>
+          <li>In your copy, choose <b>Extensions → Apps Script</b>. In the toolbar pick <b>setup</b> and press <b>Run</b>.</li>
+          <li>Google asks for permission and says the app isn’t verified, because it’s your own copy. Choose
+            <b>Advanced → Go to … (unsafe)</b> and <b>Allow</b>.</li>
+          <li>Choose <b>Deploy → New deployment</b>, click the gear and pick <b>Web app</b>. Set <b>Execute as: Me</b> and
+            <b>Who has access: Anyone</b>, then <b>Deploy</b>.</li>
+          <li>Copy the <b>Web app URL</b> and paste it above. That’s it: your copy is yours alone from then on.</li>
+        </ol>
+        <ol class="steps" id="stepsPaste">
+          <li>Open your Google Sheet (a new blank one is fine: <b>sheets.new</b>) and choose <b>Extensions → Apps Script</b>.</li>
+          <li>Delete everything in the editor, paste the script, and press <b>Ctrl + S</b>.
+            <button class="primary" id="copyScript" type="button">Copy the script</button></li>
+          <li>In the toolbar pick <b>setup</b> and press <b>Run</b>. Google says the app isn’t verified, because you made it
+            yourself: choose <b>Advanced → Go to … (unsafe)</b> and <b>Allow</b>.</li>
+          <li>Choose <b>Deploy → New deployment</b>, click the gear and pick <b>Web app</b>. Set <b>Execute as: Me</b> and
+            <b>Who has access: Anyone</b>, then <b>Deploy</b>.</li>
+          <li>Copy the <b>Web app URL</b> and paste it above.</li>
+        </ol>
+        <p class="hint">Already deployed an older script? Paste the new one, then use <b>Deploy → Manage deployments → ✎ Edit → Version: New version → Deploy</b>.
+          The link stays the same. Your old rows stay where they are; the app copies everything into a new tab called <b>Hours</b>.</p>
+      </details>
+    </section>
+    <section class="set" id="phoneSet">
+      <h2>Phone</h2>
+      <p class="line" id="phoneLine"><span class="dot" id="phoneDot"></span><span id="phoneState"></span></p>
+      <div class="phone" id="phoneBox" hidden>
+        <div id="phoneQr" role="img" aria-label="QR code that opens the phone page"></div>
+        <div class="body">
+          <p>Scan this with your phone’s camera. The page that opens logs hours and manages reminders; add it to your home screen.</p>
+          <label class="line"><input type="checkbox" id="phoneNotify"> Notify my phone when an hour is still not logged
+            <select id="phoneDelay" aria-label="Minutes to wait"></select> after the PC asks</label>
+          <button class="ghost" id="phoneTest" type="button">Send a test notification</button>
+          <span id="phoneLink"></span>
+        </div>
+      </div>
+      <div class="line" id="viaLine">Send them by <div class="seg" id="notifyVia" role="radiogroup" aria-label="Send notifications by"></div></div>
+      <p class="hint" id="viaEmail">By email to the Gmail account that owns your sheet. Turn on Gmail notifications on your phone to see them.</p>
+      <div id="tgBox" hidden>
+        <p class="line" id="tgOn" hidden><span class="dot ok"></span><span id="tgName"></span>
+          <button class="ghost" id="tgOff" type="button">Disconnect</button></p>
+        <ol class="steps" id="tgSteps">
+          <li>In Telegram, open <b>@BotFather</b>, send <b>/newbot</b>, and pick any name. It gives you a token.</li>
+          <li>Open the bot it made for you (the link is in BotFather’s message) and press <b>Start</b>.</li>
+          <li>Paste the token here and connect:
+            <div class="catrow"><input type="text" id="tgToken" placeholder="123456789:AAE…" spellcheck="false" aria-label="Bot token">
+            <button class="primary" id="tgConnect" type="button">Connect</button></div>
+            <span class="msg" id="tgMsg" role="alert"></span></li>
+        </ol>
+      </div>
+      <p class="hint">Reminders are also copied into a Google Calendar called “Hour Tracker reminders”, so the phone alerts even offline.</p>
+    </section>
+    <section class="set">
+      <h2>Startup</h2>
+      <label class="line"><input type="checkbox" id="autostart"> Start with Windows</label>
+      <div class="line"><button class="ghost" id="showWelcome" type="button">Show the welcome screen</button>
+        <span class="hint" id="version"></span></div>
+    </section>
+    <section class="set" id="shareSet" hidden>
+      <h2>Share with friends</h2>
+      <details>
+        <summary>Give friends a ready-made sheet</summary>
+        <ol class="steps">
+          <li>Make a new blank sheet (<b>sheets.new</b>) and name it <b>Hour Tracker</b>. Keep it empty.</li>
+          <li>Choose <b>Extensions → Apps Script</b>, delete what’s there, paste this script and press <b>Ctrl + S</b>.
+            It has no secret inside. Don’t run setup or deploy this one.
+            <button class="primary" id="copyTemplate" type="button">Copy the template script</button></li>
+          <li>Choose <b>Share → General access: Anyone with the link · Viewer</b>, copy the link and paste it here:
+            <div class="catrow"><input type="text" id="shareUrl" placeholder="https://docs.google.com/spreadsheets/d/…" spellcheck="false" aria-label="Template sheet link"></div>
+            <span class="hint" id="shareState"></span></li>
+          <li>Build the package with <b>build.py</b>. Friends’ copies of the app then show a “Make a copy” button instead of the script steps.</li>
+        </ol>
+      </details>
+    </section>
+  </main>
+
+  <main class="view" id="welcome" hidden>
+    <section class="wstep" data-step="0">
+      <div class="wicon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><circle cx="24" cy="24" r="20"/><path d="M24 12v12l8 6"/></svg></div>
+      <h1>Welcome to Hour Tracker</h1>
+      <p>Once an hour, a small window asks what you did. Answer in a few seconds, and over time you see where your days really go.</p>
+      <p class="hint">Everything stays on this PC. A Google Sheet, for your phone and a copy online, is optional and can come later.</p>
+      <footer class="actions"><button class="primary" data-go="1">Set it up · 1 minute</button></footer>
+    </section>
+    <section class="wstep" data-step="1" hidden>
+      <div class="eyebrow">1 of 2</div>
+      <h1>What do you spend time on?</h1>
+      <p class="hint">Tap to leave one out, or add your own. You can change these any time in Settings.</p>
+      <div class="chips" id="wCats"></div>
+      <div class="catrow"><input type="text" id="wCatNew" placeholder="Add a category" maxlength="30"><button class="ghost" id="wCatAdd">Add</button></div>
+      <footer class="actions"><button class="ghost" data-go="0">Back</button><span class="msg" id="wCatMsg"></span><button class="primary" data-go="2">Next</button></footer>
+    </section>
+    <section class="wstep" data-step="2" hidden>
+      <div class="eyebrow">2 of 2</div>
+      <h1>When should it ask?</h1>
+      <label class="line">Ask every <select id="wEvery"></select></label>
+      <div class="line">Not between <select id="wQs" aria-label="Quiet from"></select> and <select id="wQe" aria-label="Quiet until"></select>
+        <span class="hint">(sleep)</span></div>
+      <label class="line"><input type="checkbox" id="wAuto" checked> Start with Windows</label>
+      <footer class="actions"><button class="ghost" data-go="1">Back</button><button class="primary" id="wFinish">Start tracking</button></footer>
+    </section>
+    <section class="wstep" data-step="3" hidden>
+      <div class="wicon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="20"/><path d="M15 24.5l6.5 6.5L33.5 18"/></svg></div>
+      <h1>You’re set</h1>
+      <p id="wFirst"></p>
+      <p>Hour Tracker lives in the taskbar corner, as a blue clock <span class="trayicon" aria-hidden="true"></span>.
+        Right-click it for <b>History</b>, <b>Reminders</b> and <b>Settings</b>. If you don’t see it, click the <b>^</b> arrow there.</p>
+      <p class="hint">Want it on your phone too? Connect a Google Sheet in Settings whenever you like.</p>
+      <footer class="actions"><button class="ghost" id="wSettings">Open Settings</button><button class="primary" id="wClose">Done</button></footer>
+    </section>
+  </main>
+</div>
+
+<dialog id="editor">
+  <div>
+    <div class="eyebrow" id="edDay"></div>
+    <div class="edrange"><select id="edFrom" aria-label="From"></select><span>–</span><select id="edTo" aria-label="To"></select></div>
+  </div>
+  <div class="form" id="form"></div>
+  <footer class="actions">
+    <button class="primary" id="edSave">Save<kbd>Ctrl ↵</kbd></button>
+    <button class="ghost" id="edSkip" title="Mark these hours as skipped">Skip</button>
+    <button class="ghost" id="edCancel">Cancel</button>
+    <span class="msg" id="edError" role="alert"></span>
+  </footer>
+</dialog>
+
+<script>
+/*@form.js*/
+/*@reminders.js*/
+
+let api, B, D, day, busy = false, refocus = null;
+const hh = h => pad(h % 24) + ":00";
+const remCall = (name, ...args) => api[name](...args);
+function onRemSaved() { saved(); }
+const remDefaultDelete = () => B.settings.delete_done_once;
+$("remHint").textContent = "Reminders show even while asking is paused, and during quiet hours.";
+
+function show(view) {
+  for (const v of ["history", "reminders", "settings", "welcome"]) {
+    $(v).hidden = v !== view;
+    const tab = document.querySelector(`.tabs [data-view="${v}"]`);
+    if (tab) tab.setAttribute("aria-selected", v === view);
+  }
+  document.querySelector(".tabs").hidden = view === "welcome";
+  for (const d of document.querySelectorAll("dialog")) if (d.open) d.close();
+  if (view === "history") openDay(day || B.today);
+  else if (view === "reminders") loadReminders();
+  else if (view === "welcome") startWelcome();
+  else renderSettings();
+}
+
+/* ================= first run ================= */
+let wCats = [];
+function wStep(n) {
+  for (const s of document.querySelectorAll(".wstep")) s.hidden = +s.dataset.step !== n;
+  const first = document.querySelector(`.wstep[data-step="${n}"] .primary`);
+  if (first) first.focus();
+}
+function wDrawCats() {
+  const box = $("wCats"); box.innerHTML = "";
+  for (const c of wCats) {
+    const b = el("button", null, c.name); b.type = "button"; b.setAttribute("aria-pressed", c.on);
+    b.onclick = () => { c.on = !c.on; b.setAttribute("aria-pressed", c.on); };
+    box.append(b);
+  }
+}
+function startWelcome() {
+  const s = B.settings;
+  wCats = s.categories.map(name => ({ name, on: true }));
+  wDrawCats();
+  fillSelect($("wEvery"), [1, 2, 3, 4, 6, 8], n => n === 1 ? "hour" : n + " hours", s.ask_every_hours);
+  fillSelect($("wQs"), [...Array(24).keys()], hh, s.quiet_start);
+  fillSelect($("wQe"), [...Array(24).keys()], hh, s.quiet_end);
+  $("wAuto").checked = true;
+  wStep(0);
+  api.welcome_shown();
+}
+for (const b of document.querySelectorAll("[data-go]")) b.onclick = () => {
+  if (+b.dataset.go === 2 && !wCats.some(c => c.on)) { $("wCatMsg").textContent = "Keep at least one."; return; }
+  $("wCatMsg").textContent = ""; wStep(+b.dataset.go);
+};
+function wAdd() {
+  const v = $("wCatNew").value.trim();
+  if (!v) return;
+  const same = wCats.find(c => c.name.toLowerCase() === v.toLowerCase());
+  if (same) same.on = true; else wCats.push({ name: v, on: true });
+  $("wCatNew").value = ""; wDrawCats();
+}
+$("wCatAdd").onclick = wAdd;
+$("wCatNew").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); wAdd(); } };
+$("wFinish").onclick = async () => {
+  const r = await api.finish_welcome({ categories: wCats.filter(c => c.on).map(c => c.name),
+    ask_every_hours: +$("wEvery").value, quiet_start: +$("wQs").value, quiet_end: +$("wQe").value, autostart: $("wAuto").checked });
+  B.settings = r.settings;
+  $("wFirst").textContent = "The first question comes " + (/^\d/.test(r.first) ? "at " : "") + r.first +
+    (B.settings.ask_every_hours === 1 ? ", about the hour before it." : ", about the hours since you started.");
+  wStep(3);
+};
+$("wSettings").onclick = () => show("settings");
+$("wClose").onclick = () => api.close();
+for (const t of document.querySelectorAll(".tabs button")) t.onclick = () => show(t.dataset.view);
+
+/* ================= history ================= */
+async function openDay(date) {
+  D = await api.day(date);
+  day = D.date; B.today = D.today;
+  renderDay();
+}
+function groups(hours) {   // neighbouring hours with the same content become one block
+  const out = [];
+  for (const h of hours) {
+    const sig = h.state + (h.state === "entry" ? JSON.stringify([h.category, h.activity, h.remark, h.prod, h.sat]) : "");
+    const last = out[out.length - 1];
+    if (last && last.sig === sig) last.end = h.hour + 1;
+    else out.push({ ...h, sig, start: h.hour, end: h.hour + 1 });
+  }
+  return out;
+}
+function renderDay() {
+  const hours = D.hours, count = s => hours.filter(h => h.state === s).length;
+  $("dayTitle").textContent = day === B.today ? "Today" : day === shift(B.today, -1) ? "Yesterday" : nice(day);
+  $("prev").disabled = day <= B.first_day;
+  $("next").disabled = $("todayBtn").disabled = day >= B.today;
+  $("datePick").min = B.first_day; $("datePick").max = B.today; $("datePick").value = day;
+  $("summary").textContent = nice(day) + " · " + count("entry") + " of " + hours.length + " hours logged"
+    + (count("empty") ? " · " + count("empty") + " not logged" : "");
+  const box = $("blocks"); box.innerHTML = "";
+  if (!hours.length) box.append(el("p", "none", "No finished hours yet today."));
+  for (const b of groups(hours)) {
+    const row = el("button", "block " + b.state); row.type = "button";
+    const what = el("span", "what");
+    if (b.state === "entry") {
+      what.append(el("span", "tag", b.category), b.activity || "");
+      if (b.remark) what.append(el("span", "remark", b.remark));
+    } else what.textContent = b.state === "empty" ? "Not logged · click to fill in" : "Skipped";
+    row.append(el("span", "time", hh(b.start) + " – " + hh(b.end)), what,
+      el("span", "marks", b.state === "entry" ? [b.prod, b.sat].filter(v => v != null).join(" · ") : ""));
+    row.onclick = () => edit(b);
+    box.append(row);
+  }
+}
+$("prev").onclick = () => openDay(shift(day, -1));
+$("next").onclick = () => openDay(shift(day, 1));
+$("todayBtn").onclick = () => openDay(B.today);
+$("dayBtn").onclick = () => $("datePick").showPicker();
+$("datePick").onchange = e => { const v = e.target.value; if (v && v >= B.first_day && v <= B.today) openDay(v); };
+
+/* ---- editing one block */
+function edit(b) {
+  const isEntry = b.state === "entry", s = B.settings, on = f => s.fields[f] !== false;
+  $("edFrom").innerHTML = ""; $("edTo").innerHTML = "";
+  for (let h = 0; h < D.hours.length; h++) {
+    $("edFrom").add(new Option(hh(h), h)); $("edTo").add(new Option(hh(h + 1), h + 1));
+  }
+  $("edFrom").value = b.start; $("edTo").value = b.end;
+  $("edDay").textContent = toDate(day).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  $("edError").textContent = "";
+  // Keep what an old entry holds editable, even if that category or field was switched off since.
+  mountForm($("form"), !isEntry || s.categories.includes(b.category) ? s.categories : [...s.categories, b.category], {
+    remark: on("remark") || (isEntry && !!b.remark),
+    productivity: on("productivity") || (isEntry && b.prod != null),
+    satisfaction: on("satisfaction") || (isEntry && b.sat != null) });
+  $("editor").showModal();
+  fillForm(isEntry ? b : D.defaults, true);
+}
+$("edFrom").onchange = () => { if (+$("edTo").value <= +$("edFrom").value) $("edTo").value = +$("edFrom").value + 1; };
+$("edTo").onchange = () => { if (+$("edTo").value <= +$("edFrom").value) $("edFrom").value = +$("edTo").value - 1; };
+
+async function commit(skip) {
+  if (busy) return;
+  busy = true; document.body.classList.add("busy");
+  try {
+    D = await api.save(day, +$("edFrom").value, +$("edTo").value, skip ? null : readForm());
+    $("editor").close(); renderDay(); saved();
+  } catch (err) {
+    $("edError").textContent = "Could not save. Try again.";
+  } finally {
+    busy = false; document.body.classList.remove("busy");
+  }
+}
+$("edSave").onclick = () => commit(false);
+$("edSkip").onclick = () => commit(true);
+$("edCancel").onclick = () => $("editor").close();
+
+document.addEventListener("keydown", e => {
+  if (!B || $("remDlg").open) return;   // reminders.js handles keys in its own editor
+  if ($("editor").open) return formKeydown(e, () => commit(false));
+  if ($("history").hidden || ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+  if (e.key === "ArrowLeft" && !$("prev").disabled) openDay(shift(day, -1));
+  if (e.key === "ArrowRight" && !$("next").disabled) openDay(shift(day, 1));
+});
+
+/* ================= settings: every change saves at once ================= */
+function saved() {
+  $("saved").classList.add("on");
+  clearTimeout(saved.t); saved.t = setTimeout(() => $("saved").classList.remove("on"), 1400);
+}
+async function patch(change) {
+  B.settings = await api.set_settings(change);
+  if (change.theme) document.documentElement.dataset.theme = change.theme;
+  renderSettings(); saved();
+}
+function fillSelect(sel, values, label, current) {
+  sel.innerHTML = "";
+  for (const v of values.includes(current) ? values : [...values, current]) sel.add(new Option(label(v), v));
+  sel.value = current;
+}
+function renderSettings() {
+  const s = B.settings, cats = s.categories, list = $("catList");
+  list.innerHTML = "";
+  cats.forEach((name, i) => {
+    const row = el("div", "catrow"), box = el("input");
+    box.type = "text"; box.value = name; box.maxLength = 30; box.setAttribute("aria-label", "Category name");
+    box.onchange = () => {
+      const v = box.value.trim();
+      if (!v || cats.some((c, j) => j !== i && c.toLowerCase() === v.toLowerCase())) { box.value = name; return; }
+      const next = [...cats]; next[i] = v; patch({ categories: next });
+    };
+    const btn = (key, text, label, off, act) => {
+      const b = el("button", "ghost icon", text); b.type = "button"; b.dataset.k = key + i;
+      b.title = label; b.setAttribute("aria-label", label + " " + name); b.disabled = off; b.onclick = act; return b;
+    };
+    const move = to => () => {
+      const next = [...cats]; next.splice(to, 0, next.splice(i, 1)[0]);
+      refocus = (to < i ? "up" : "down") + to; patch({ categories: next });
+    };
+    row.append(box,
+      btn("up", "↑", "Move up", i === 0, move(i - 1)),
+      btn("down", "↓", "Move down", i === cats.length - 1, move(i + 1)),
+      btn("del", "✕", "Remove", cats.length === 1, () => patch({ categories: cats.filter((_, j) => j !== i) })));
+    list.append(row);
+  });
+  if (refocus) { const b = list.querySelector(`[data-k="${refocus}"]`); if (b && !b.disabled) b.focus(); refocus = null; }
+
+  for (const b of $("fields").children) b.setAttribute("aria-pressed", s.fields[b.dataset.field] !== false);
+  fillSelect($("askEvery"), [1, 2, 3, 4, 5, 6, 8, 12], n => n + (n === 1 ? " hour" : " hours"), s.ask_every_hours);
+  const hoursOfDay = [...Array(24).keys()];
+  fillSelect($("quietStart"), hoursOfDay, hh, s.quiet_start);
+  fillSelect($("quietEnd"), hoursOfDay, hh, s.quiet_end);
+  $("snoozeMin").value = s.snooze_minutes; $("snoozeMax").value = s.max_snoozes;
+  $("remSound").checked = s.reminder_sound; $("remSnooze").value = s.reminder_snooze;
+  $("delDoneOnce").checked = s.delete_done_once;
+  mark($("theme"), s.theme[0].toUpperCase() + s.theme.slice(1));
+  $("autostart").checked = s.autostart;
+  $("version").textContent = "Version " + B.version;
+  $("shareSet").hidden = B.frozen && !s.maker;   // friends don't make packages; you do (from the source folder)
+  if (document.activeElement !== $("shareUrl")) $("shareUrl").value = s.share_template || "";
+  $("stepsCopy").hidden = !B.template_copy; $("stepsPaste").hidden = !!B.template_copy;
+  $("phoneNotify").checked = s.phone_notify;
+  fillSelect($("phoneDelay"), [5, 10, 15, 30], n => n + " min", s.phone_delay);
+  showVia();
+  if (!renderSettings.sheet) { renderSettings.sheet = true; api.sheet_status().then(showSheet); }
+}
+function addCategory() {
+  const v = $("catNew").value.trim(), cats = B.settings.categories;
+  if (!v || cats.some(c => c.toLowerCase() === v.toLowerCase())) return;
+  $("catNew").value = ""; patch({ categories: [...cats, v] });
+}
+$("catAdd").onclick = addCategory;
+$("catNew").onkeydown = e => { if (e.key === "Enter") addCategory(); };
+for (const b of $("fields").children) {
+  b.onclick = () => patch({ fields: { ...B.settings.fields, [b.dataset.field]: b.getAttribute("aria-pressed") !== "true" } });
+}
+$("askEvery").onchange = e => patch({ ask_every_hours: +e.target.value });
+$("quietStart").onchange = e => patch({ quiet_start: +e.target.value });
+$("quietEnd").onchange = e => patch({ quiet_end: +e.target.value });
+$("snoozeMin").onchange = e => patch({ snooze_minutes: +e.target.value || 10 });
+$("snoozeMax").onchange = e => patch({ max_snoozes: +e.target.value || 0 });
+$("autostart").onchange = e => patch({ autostart: e.target.checked });
+$("showWelcome").onclick = () => show("welcome");
+$("copyTemplate").onclick = async () => {
+  const b = $("copyTemplate");
+  try { await api.copy_script(true); b.textContent = "Copied. Paste it in the template’s Apps Script"; }
+  catch (e) { b.textContent = "Could not copy. Try again"; }
+  setTimeout(() => { b.textContent = "Copy the template script"; }, 4000);
+};
+$("shareUrl").onchange = async () => {
+  const v = $("shareUrl").value.trim();
+  if (v && !/docs\.google\.com\/spreadsheets\/d\/[\w-]{20,}/.test(v)) { $("shareState").textContent = "That isn’t a Google Sheets link."; return; }
+  await patch({ share_template: v });
+  $("shareState").textContent = v ? "Saved. The next package will offer this sheet to friends." : "";
+};
+$("openTemplate").onclick = () => api.open_link(B.template_copy);
+$("remSound").onchange = e => patch({ reminder_sound: e.target.checked });
+$("remSnooze").onchange = e => patch({ reminder_snooze: +e.target.value || 10 });
+$("delDoneOnce").onchange = e => patch({ delete_done_once: e.target.checked });
+$("remPlay").onclick = () => api.play_chime();
+
+/* ---- google sheet */
+function showSheet(st) {
+  const hm = s => s ? s.slice(11, 16) + (s.slice(0, 10) === todayIso() ? "" : " on " + nice(s.slice(0, 10))) : "";
+  let cls = "", msg;
+  if (!st.url) msg = "Not connected. Your hours stay on this PC.";
+  else if (st.error) { cls = "bad"; msg = "Could not sync at " + hm(st.error_at) + ". " + st.error; }
+  else if (!st.ok_at) msg = "Not synced yet.";
+  else if (!st.two_way) { cls = "warn"; msg = "Connected to an older script, one way only. Copy the new script below to turn on two-way sync."; }
+  else { cls = "ok"; msg = "Connected · last synced " + hm(st.ok_at) + (st.waiting ? " · " + st.waiting + " hours waiting to send" : ""); }
+  $("sheetDot").className = "dot " + cls; $("sheetState").textContent = msg;
+  if (document.activeElement !== $("sheetUrl")) $("sheetUrl").value = st.url;
+  if (!st.url || !st.two_way || st.error) $("sheetHelp").open = true;
+  showPhone(st);
+}
+async function showPhone(st) {
+  const p = st.phone || {};
+  let cls = "", msg, ready = false;
+  if (!st.url || !st.two_way) msg = "Connect a Google Sheet first (above).";
+  else if (!st.build || st.build < 5 || !p.has_page) { cls = "warn"; msg = "Your sheet runs an older script. Copy the script again, paste it, run setup, and deploy a new version."; }
+  else if (!p.setup) { cls = "warn"; msg = "One step left: in Apps Script, pick “setup” in the toolbar, press Run, and allow access."; ready = true; }
+  else if (!p.page_url) { cls = "warn"; msg = "Deploy the script as a web app (see above)."; }
+  else {
+    ready = true;
+    const err = p.calendar_error || p.notify_error;
+    cls = err ? "warn" : "ok";
+    msg = err ? "Ready, but: " + err : "Ready · reminders also go to your Google Calendar";
+  }
+  $("phoneDot").className = "dot " + cls; $("phoneState").textContent = msg;
+  $("phoneBox").hidden = !(ready && st.phone_link);
+  if (!$("phoneBox").hidden && $("phoneLink").textContent !== st.phone_link) {
+    $("phoneQr").innerHTML = await api.phone_qr();
+    $("phoneLink").textContent = st.phone_link;
+  }
+}
+$("phoneTest").onclick = async () => {
+  const b = $("phoneTest");
+  b.disabled = true; b.textContent = "Sending…";
+  try { b.textContent = (await api.phone_test()) ? "Sent. Check your phone" : "Could not send. Try again"; }
+  catch (e) { b.textContent = "Could not send. Try again"; }
+  setTimeout(() => { b.disabled = false; b.textContent = "Send a test notification"; }, 4000);
+};
+$("phoneNotify").onchange = e => patch({ phone_notify: e.target.checked });
+let viaShown = null;   // what the Email / Telegram switch shows; Telegram only takes effect once connected
+function showVia() {
+  const s = B.settings, via = viaShown || s.notify_via;
+  mark($("notifyVia"), via === "telegram" ? "Telegram" : "Email");
+  $("viaEmail").hidden = via !== "email"; $("tgBox").hidden = via !== "telegram";
+  $("tgOn").hidden = !s.telegram_bot; $("tgSteps").hidden = !!s.telegram_bot;
+  $("tgName").textContent = s.telegram_bot ? "Connected to @" + s.telegram_bot : "";
+}
+radios($("notifyVia"), ["Email", "Telegram"], v => {
+  viaShown = v.toLowerCase();
+  if (viaShown === "email" || B.settings.telegram_bot) patch({ notify_via: viaShown });
+  showVia();
+});
+$("tgConnect").onclick = async () => {
+  const b = $("tgConnect"); b.disabled = true; $("tgMsg").textContent = "";
+  try { const r = await api.telegram_connect($("tgToken").value); B.settings = r.settings; $("tgToken").value = ""; viaShown = null; showVia(); saved(); }
+  catch (e) { $("tgMsg").textContent = (e && e.message) || "Could not connect."; }
+  finally { b.disabled = false; }
+};
+$("tgOff").onclick = async () => { B.settings = await api.telegram_disconnect(); viaShown = null; showVia(); saved(); };
+$("phoneDelay").onchange = e => patch({ phone_delay: +e.target.value });
+async function syncNow() {
+  $("sheetSync").disabled = true; $("sheetState").textContent = "Syncing…"; $("sheetDot").className = "dot";
+  try { showSheet(await api.sync_now()); } finally { $("sheetSync").disabled = false; }
+}
+$("sheetSync").onclick = syncNow;
+$("sheetUrl").onchange = async () => {
+  const v = $("sheetUrl").value.trim();
+  if (v && !/^https:\/\/script\.google\.com\/\S+\/exec$/.test(v)) {
+    $("sheetDot").className = "dot bad";
+    $("sheetState").textContent = "That doesn’t look like a web app link. It starts with https://script.google.com/ and ends with /exec.";
+    return;
+  }
+  await patch({ webhook_url: v });
+  if (v) syncNow(); else showSheet(await api.sheet_status());
+};
+$("copyScript").onclick = async () => {
+  const b = $("copyScript");
+  try { await api.copy_script(); b.textContent = "Copied. Now paste it in Apps Script"; }
+  catch (e) { b.textContent = "Could not copy. Try again"; }
+  setTimeout(() => { b.textContent = "Copy the script"; }, 4000);
+};
+radios($("theme"), ["Auto", "Light", "Dark"], v => patch({ theme: v.toLowerCase() }));
+
+/* ================= start-up ================= */
+async function start() {
+  if (api) return;
+  api = window.pywebview.api;
+  B = await api.boot();
+  $("app").hidden = false;
+  show(B.view);
+}
+if (window.pywebview && window.pywebview.api && window.pywebview.api.boot) start();
+else window.addEventListener("pywebviewready", start);
+</script>
+</body>
+</html>

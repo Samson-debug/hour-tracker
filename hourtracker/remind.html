@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reminder</title>
+<style>
+/*@base.css*/
+
+html { font-size: 16px; }
+body { overflow: hidden; border: 1px solid var(--line-strong); }
+main { display: flex; flex-direction: column; padding: 1.2rem 1.4rem 1.1rem; gap: 1rem; }
+
+.head { display: flex; align-items: center; gap: .7rem; cursor: default; }
+.bell {
+  position: relative; flex: none; width: 2.4rem; height: 2.4rem; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: var(--on-accent);
+}
+.bell svg { width: 1.25rem; height: 1.25rem; animation: ring 2.4s ease-in-out infinite; transform-origin: 50% 15%; }
+.bell::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  box-shadow: 0 0 0 0 var(--accent); animation: pulse 2.4s ease-out infinite;
+}
+@keyframes ring { 0%, 55%, 100% { transform: rotate(0); } 5%, 15%, 25% { transform: rotate(14deg); } 10%, 20%, 30% { transform: rotate(-14deg); } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--accent); opacity: .6; } 70%, 100% { box-shadow: 0 0 0 .8rem var(--accent); opacity: 0; } }
+.head .eyebrow { font-size: .85rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+#clock { margin-left: auto; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+#list { list-style: none; padding: 0; max-height: 27rem; overflow-y: auto; display: flex; flex-direction: column; gap: .6rem; }
+#list li { display: flex; align-items: flex-start; gap: .8rem; }
+#list li + li { border-top: 1px solid var(--line); padding-top: .6rem; }
+.body { flex: 1; min-width: 0; }
+.text {
+  font-size: 1.55rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.22;
+  overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+#list.many .text { font-size: 1.2rem; -webkit-line-clamp: 2; }
+.when { display: block; margin-top: .25rem; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.when.late { color: var(--danger); }
+.one { flex: none; margin-top: .1rem; }
+
+footer.actions { justify-content: flex-end; }
+#later { margin-right: auto; }
+.primary { padding: .7rem 1.6rem; font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<main id="app" hidden>
+  <div class="head pywebview-drag-region">
+    <span class="bell" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+      </svg>
+    </span>
+    <span class="eyebrow" id="label">Reminder</span>
+    <span id="clock"></span>
+  </div>
+  <ul id="list" aria-live="assertive"></ul>
+  <footer class="actions">
+    <button class="ghost" id="later"></button>
+    <button class="primary" id="done">Done</button>
+  </footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+let api, items = [], busy = false;
+
+function ago(min) {
+  return min < 60 ? min + " min ago" : Math.floor(min / 60) + " h " + (min % 60 ? (min % 60) + " min " : "") + "ago";
+}
+function render(state) {
+  items = state.items;
+  if (!items.length) return;
+  const many = items.length > 1, list = $("list");
+  list.className = many ? "many" : ""; list.innerHTML = "";
+  $("label").textContent = many ? items.length + " reminders" : "Reminder";
+  for (const r of items) {
+    const li = el("li"), body = el("div", "body");
+    body.append(el("div", "text", r.text),
+      el("span", "when" + (r.late >= 2 ? " late" : ""), r.late >= 2 ? "Was due " + r.time + " · " + ago(r.late) : r.time));
+    li.append(body);
+    if (many) {
+      const b = el("button", "ghost one", "Done"); b.type = "button";
+      b.onclick = () => act(() => api.done(r.id, r.occurrence));
+      li.append(b);
+    }
+    list.append(li);
+  }
+  $("later").textContent = "Remind me in " + state.snooze + " min";
+  $("done").textContent = many ? "Done with all" : "Done";
+  $("app").hidden = false;
+  requestAnimationFrame(() => api.fit(Math.ceil($("app").getBoundingClientRect().height) + 2));   // window hugs the card
+}
+async function act(call) {
+  if (busy) return;
+  busy = true;
+  try { const s = await call(); if (s) render(s); } finally { busy = false; }
+}
+$("done").onclick = () => act(async () => {
+  let s;
+  for (const r of items) s = await api.done(r.id, r.occurrence);
+  return s;
+});
+$("later").onclick = () => act(() => api.snooze());
+
+function tick() { const d = new Date(); $("clock").textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+async function start() {
+  if (api) return;
+  api = window.pywebview.api;
+  tick(); setInterval(tick, 10000);
+  render(await api.due());
+  setInterval(() => act(() => api.due()), 20000);   // picks up reminders that come due meanwhile
+}
+if (window.pywebview && window.pywebview.api && window.pywebview.api.due) start();
+else window.addEventListener("pywebviewready", start);
+</script>
+</body>
+</html>

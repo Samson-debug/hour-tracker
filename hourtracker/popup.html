@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hour Tracker</title>
+<style>
+/*@base.css*/
+
+main {
+  min-height: 100%; max-width: 46rem; margin: 0 auto; padding: 1.4rem 1.5rem 1.2rem;
+  display: flex; flex-direction: column; gap: 1.05rem;
+}
+main.swap { animation: swap .28s ease; }
+@keyframes swap { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---- header: which hours this entry covers */
+.title { display: flex; align-items: baseline; gap: .7rem; margin-top: .1rem; }
+.dur {
+  font-size: .8rem; font-weight: 600; color: var(--accent); background: var(--accent-soft);
+  padding: .12rem .55rem; border-radius: 99px; white-space: nowrap;
+}
+.strip { display: flex; gap: 3px; margin-top: .8rem; border-radius: .45rem; cursor: pointer; }
+.strip i {
+  flex: 1 1 0; min-width: 0; height: 1.75rem; border-radius: .32rem;
+  display: grid; place-items: center; overflow: hidden;
+  font-style: normal; font-size: .68rem; font-variant-numeric: tabular-nums;
+  background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: background .12s, color .12s;
+}
+.strip i.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: none; }
+.strip i.edge { background: var(--accent); color: var(--on-accent); }
+.strip i:hover { box-shadow: inset 0 0 0 1.5px var(--accent); }
+#hint { margin-top: .4rem; }
+
+#skip { order: 1; } #later { order: 2; }
+
+/* ---- shown for a moment once everything is logged */
+#done { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; }
+#done svg { width: 4rem; height: 4rem; color: var(--accent); animation: pop .3s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes pop { from { opacity: 0; transform: scale(.6); } }
+</style>
+</head>
+<body>
+<main id="app" hidden>
+  <header>
+    <div class="eyebrow" id="day"></div>
+    <div class="title"><h1 id="range"></h1><span class="dur" id="dur" hidden></span></div>
+    <div id="split" hidden>
+      <div class="strip" id="strip" role="slider" tabindex="0" aria-label="Hours covered by this entry"></div>
+      <p class="hint" id="hint"></p>
+    </div>
+  </header>
+
+  <div class="form" id="form"></div>
+
+  <footer class="actions">
+    <button class="primary" id="save" title="Ctrl+Enter anywhere, or Enter outside the text boxes">Save<kbd>Ctrl ↵</kbd></button>
+    <button class="ghost" id="later"></button>
+    <button class="ghost" id="skip" title="Leave these hours empty">Skip</button>
+    <span class="msg" id="error" role="alert"></span>
+  </footer>
+</main>
+
+<div id="done" hidden>
+  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="24" cy="24" r="20"/><path d="M15 24.5l6.5 6.5L33.5 18"/>
+  </svg>
+</div>
+
+<script>
+/*@form.js*/
+
+const parse = s => new Date(s.replace(" ", "T"));          // "2026-11-12 09:00", local time
+const hhmm = d => pad(d.getHours()) + ":" + pad(d.getMinutes());
+const dayOf = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
+let api, S, count, busy = false;
+const openedAt = Date.now();
+
+function setCount(n) {
+  const hours = S.hours, total = hours.length;
+  count = Math.max(1, Math.min(total, n));
+  const start = parse(hours[0]), end = new Date(parse(hours[count - 1]).getTime() + 3600e3);
+  $("range").textContent = hhmm(start) + " – " + hhmm(end);
+  $("day").textContent = dayOf(start) + (start.getDate() !== end.getDate() && hhmm(end) !== "00:00" ? " → " + dayOf(end) : "");
+  $("dur").hidden = count < 2; $("dur").textContent = count + " h";
+  $("split").hidden = total < 2;
+  [...$("strip").children].forEach((c, i) => { c.className = i < count ? (i === count - 1 ? "on edge" : "on") : ""; });
+  $("strip").setAttribute("aria-valuenow", count);
+  $("hint").textContent = count === total
+    ? total + " hours to log · click an hour to log a shorter part first"
+    : "Logging " + count + " of " + total + " hours · the rest comes next";
+}
+
+function load(state, again) {
+  S = state;
+  const strip = $("strip"); strip.innerHTML = "";
+  for (const h of S.hours) {
+    const c = document.createElement("i"); c.textContent = pad(parse(h).getHours()); strip.append(c);
+  }
+  strip.setAttribute("aria-valuemin", 1); strip.setAttribute("aria-valuemax", S.hours.length);
+  mountForm($("form"), S.categories, S.fields);
+  $("error").textContent = "";
+  $("later").textContent = S.snoozes_left > 0 ? "Later · " + S.snoozes_left + " left" : "No snoozes left";
+  $("later").title = "Ask again in " + S.snooze_minutes + " minutes";
+  $("later").disabled = S.snoozes_left <= 0;
+  setCount(S.hours.length);
+  $("app").hidden = false;
+  if (again) { $("app").classList.remove("swap"); void $("app").offsetWidth; $("app").classList.add("swap"); }
+  fillForm({ category: S.category, prod: S.prod, sat: S.sat }, true);
+}
+
+async function submit(skip) {
+  if (busy) return;
+  busy = true; document.body.classList.add("busy");
+  try {
+    const next = await api.save(count, skip ? null : readForm());
+    if (next.hours.length) load(next, true); else $("done").hidden = false;   // the window closes itself
+  } catch (err) {
+    $("error").textContent = "Could not save. Try again.";
+  } finally {
+    busy = false; document.body.classList.remove("busy");
+  }
+}
+$("save").onclick = () => submit(false);
+$("skip").onclick = () => submit(true);
+$("later").onclick = () => api.snooze();
+
+$("strip").onclick = e => {
+  const i = [...$("strip").children].indexOf(e.target.closest("i"));
+  if (i >= 0) setCount(i + 1);
+};
+$("strip").onkeydown = e => {
+  const to = { ArrowLeft: count - 1, ArrowRight: count + 1, Home: 1, End: S.hours.length }[e.key];
+  if (to !== undefined) { e.preventDefault(); setCount(to); }
+};
+document.addEventListener("keydown", e => {
+  // Enter is ignored for the first second: you may have been typing elsewhere when this appeared.
+  if (S) formKeydown(e, () => submit(false), () => Date.now() - openedAt > 1000);
+});
+
+async function start() {
+  if (api) return;
+  api = window.pywebview.api;
+  load(await api.state());
+}
+if (window.pywebview && window.pywebview.api && window.pywebview.api.state) start();
+else window.addEventListener("pywebviewready", start);
+</script>
+</body>
+</html>

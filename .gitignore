@@ -1,0 +1,23 @@
+# Your own data and secrets: never in the repository
+tracker.db
+config.json
+*.log
+chime.wav
+backup-*/
+hourtracker/share.json
+
+# Build output (the zip goes on a GitHub Release instead)
+build/
+dist/
+
+# Python and editor leftovers
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+.claude/
+
+# The old one-file version, replaced by the hourtracker package
+tracker.py
+seed_gap.py
+sync_test.py
