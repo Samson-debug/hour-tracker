@@ -114,3 +114,8 @@ python build.py
 | `build.py` | makes the zip |
 
 To give friends a ready-made Google Sheet they can copy, see **Settings → Share with friends** when running from source.
+
+## License
+
+Hour Tracker is free software under the [GNU General Public License v3.0](LICENSE): you may use, share and change it,
+and versions you share must stay under the same license.
