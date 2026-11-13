@@ -30,7 +30,8 @@ DEFAULTS = {
     "delete_done_once": True,
     "welcomed": False,      # the first-run screen has been seen
     "share_template": "",   # your template sheet's link, built into packages you give to friends
-    "maker": False,         # you make packages for friends: show "Share with friends" in the packaged app too   # a one-time reminder is deleted once marked done (each can override)
+    "maker": False,
+    "export": {},           # the History export choices used last time         # you make packages for friends: show "Share with friends" in the packaged app too   # a one-time reminder is deleted once marked done (each can override)
 }
 
 
@@ -273,6 +274,38 @@ def next_due(con, cfg, now=None):
     if snooze:
         due = max(due, datetime.strptime(snooze, FMT))
     return out_of_quiet(max(due, now), cfg)
+
+
+# ---------------------------------------------------------------- export
+
+EXPORT_COLUMNS = (("activity", "What I did"), ("remark", "Remark"),
+                  ("prod", "Productivity"), ("sat", "Satisfaction"))
+
+
+def export_rows(con, opts):
+    """The logged hours between opts['from'] and opts['to'] (days, inclusive) in the chosen categories."""
+    start = datetime.strptime(opts["from"], DAY)
+    end = datetime.strptime(opts["to"], DAY) + timedelta(days=1)
+    cats = set(opts.get("categories") or [])
+    rows = con.execute("""SELECT hour_start, category, activity, remark, productivity, satisfaction FROM entries
+        WHERE status != 'skipped' AND hour_start >= ? AND hour_start < ? ORDER BY hour_start""",
+                       (start.strftime(FMT), end.strftime(FMT))).fetchall()
+    return [r for r in rows if not cats or r[1] in cats]
+
+
+def write_export(path, rows, columns):
+    """A CSV file Excel and Google Sheets both open correctly (UTF-8 with a byte-order mark)."""
+    import csv
+    keep = [(i, title) for i, (key, title) in enumerate(EXPORT_COLUMNS) if key in columns]
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["Date", "From", "To", "Category"] + [title for _, title in keep])
+        for hs, cat, act, rem, prod, sat in rows:
+            dt = datetime.strptime(hs, FMT)
+            values = (act, rem, prod, sat)
+            w.writerow([dt.strftime(DAY), dt.strftime("%H:%M"), (dt + HOUR).strftime("%H:%M"), cat]
+                       + ["" if values[i] is None else values[i] for i, _ in keep])
+    return len(rows)
 
 
 # ---------------------------------------------------------------- reminders

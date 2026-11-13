@@ -48,6 +48,15 @@
 
 /*@reminders.css*/
 
+/* ---- export */
+#exportDlg { height: fit-content; width: min(38rem, calc(100vw - 2rem)); }
+#exportDlg .remfield > span { width: 5.6rem; }
+#exportDlg .exTop { align-items: flex-start; }
+#exportDlg .exTop > span { padding-top: .45rem; }
+#exportDlg .chips { flex: 1; }
+#exCats button[aria-pressed="false"], #exCols button[aria-pressed="false"] { opacity: .55; text-decoration: line-through; }
+#exMsg { color: var(--muted); }
+
 /* ---- the editor that opens over a day */
 .edrange {
   display: flex; align-items: baseline; gap: .5rem; margin-top: .1rem;
@@ -139,6 +148,7 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-
       <input type="date" id="datePick" tabindex="-1" aria-hidden="true">
       <button class="ghost nav" id="next" aria-label="Next day" title="Next day (→)">›</button>
       <button class="ghost" id="todayBtn">Today</button>
+      <button class="ghost" id="exportBtn" title="Save hours as a spreadsheet file to share">Export</button>
     </div>
     <p class="hint" id="summary"></p>
     <div class="blocks" id="blocks"></div>
@@ -309,6 +319,22 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-
   </main>
 </div>
 
+<dialog id="exportDlg">
+  <div class="eyebrow">Export to a spreadsheet</div>
+  <div class="remfield"><span>Dates</span><div class="chips" id="exRanges"></div></div>
+  <div class="remfield" id="exCustom"><span></span>
+    <input type="date" id="exFrom" aria-label="From"> to <input type="date" id="exTo" aria-label="To"></div>
+  <div class="remfield exTop"><span>Categories</span><div class="chips" id="exCats"></div></div>
+  <div class="remfield exTop"><span>Include</span><div class="chips" id="exCols"></div></div>
+  <p class="hint" id="exCount"></p>
+  <footer class="actions">
+    <button class="primary" id="exSave">Save…</button>
+    <button class="ghost" id="exCancel">Close</button>
+    <button class="ghost" id="exShow" hidden>Show the file</button>
+    <span class="msg" id="exMsg" role="status"></span>
+  </footer>
+</dialog>
+
 <dialog id="editor">
   <div>
     <div class="eyebrow" id="edDay"></div>
@@ -444,6 +470,74 @@ $("todayBtn").onclick = () => openDay(B.today);
 $("dayBtn").onclick = () => $("datePick").showPicker();
 $("datePick").onchange = e => { const v = e.target.value; if (v && v >= B.first_day && v <= B.today) openDay(v); };
 
+/* ---- export: dates, categories and columns to choose */
+const EX_RANGES = [["week", "This week"], ["7", "Last 7 days"], ["month", "This month"], ["30", "Last 30 days"], ["all", "Everything"], ["custom", "Pick dates"]];
+const EX_COLS = [["activity", "What I did"], ["remark", "Remark"], ["prod", "Productivity"], ["sat", "Satisfaction"]];
+let EX = null;
+function exDates(range) {
+  const t = B.today, d = toDate(t);
+  if (range === "week") { const back = (d.getDay() + 6) % 7; return [shift(t, -back), t]; }
+  if (range === "month") return [t.slice(0, 8) + "01", t];
+  if (range === "all") return [B.first_day, t];
+  if (range === "custom") return [$("exFrom").value || shift(t, -6), $("exTo").value || t];
+  return [shift(t, -(+range - 1)), t];
+}
+function exOpts() {
+  const [from, to] = exDates(EX.range);
+  return { range: EX.range, from: from <= to ? from : to, to: from <= to ? to : from,
+           categories: EX.cats.filter(c => !EX.skip.includes(c)), skip_categories: EX.skip, columns: EX.cols };
+}
+async function exRefresh() {
+  for (const b of $("exRanges").children) b.setAttribute("aria-pressed", b.dataset.k === EX.range);
+  $("exCustom").hidden = EX.range !== "custom";
+  const o = exOpts();
+  if (EX.range !== "custom") { $("exFrom").value = o.from; $("exTo").value = o.to; }
+  const n = await api.export_count(o);
+  $("exCount").textContent = (o.from === o.to ? nice(o.from) : nice(o.from) + " – " + nice(o.to)) + " · " +
+    (n.hours ? n.hours + (n.hours === 1 ? " hour" : " hours") + " on " + n.days + (n.days === 1 ? " day" : " days") : "no logged hours in this choice");
+  $("exSave").disabled = !n.hours || !o.categories.length;
+}
+function exChips(box, items, isOn, toggle) {
+  box.innerHTML = "";
+  for (const [k, label] of items) {
+    const b = el("button", null, label); b.type = "button"; b.dataset.k = k;
+    b.setAttribute("aria-pressed", isOn(k));
+    b.onclick = () => { toggle(k); b.setAttribute("aria-pressed", isOn(k)); exRefresh(); };
+    box.append(b);
+  }
+}
+async function openExport() {
+  const info = await api.export_info(), last = info.last || {};
+  EX = { range: last.range || "week", cats: info.categories, skip: (last.skip_categories || []).filter(c => info.categories.includes(c)),
+         cols: last.columns || EX_COLS.map(c => c[0]) };
+  $("exRanges").innerHTML = "";
+  for (const [k, label] of EX_RANGES) {
+    const b = el("button", null, label); b.type = "button"; b.dataset.k = k;
+    b.onclick = () => { EX.range = k; exRefresh(); };
+    $("exRanges").append(b);
+  }
+  exChips($("exCats"), EX.cats.map(c => [c, c]), c => !EX.skip.includes(c),
+          c => { EX.skip = EX.skip.includes(c) ? EX.skip.filter(x => x !== c) : [...EX.skip, c]; });
+  exChips($("exCols"), EX_COLS, k => EX.cols.includes(k),
+          k => { EX.cols = EX.cols.includes(k) ? EX.cols.filter(x => x !== k) : [...EX.cols, k]; });
+  $("exFrom").max = $("exTo").max = B.today; $("exFrom").min = $("exTo").min = B.first_day;
+  $("exMsg").textContent = ""; $("exShow").hidden = true;
+  $("exportDlg").showModal();
+  await exRefresh();
+}
+$("exportBtn").onclick = openExport;
+$("exFrom").onchange = $("exTo").onchange = () => exRefresh();
+$("exCancel").onclick = () => $("exportDlg").close();
+$("exSave").onclick = async () => {
+  $("exSave").disabled = true;
+  try {
+    const r = await api.export_save(exOpts());
+    if (r) { $("exMsg").textContent = "Saved " + r.hours + " hours."; $("exShow").hidden = false; $("exShow").dataset.path = r.path; }
+  } catch (e) { $("exMsg").textContent = "Could not save the file."; }
+  finally { $("exSave").disabled = false; }
+};
+$("exShow").onclick = () => api.show_file($("exShow").dataset.path);
+
 /* ---- editing one block */
 function edit(b) {
   const isEntry = b.state === "entry", s = B.settings, on = f => s.fields[f] !== false;
@@ -482,7 +576,7 @@ $("edSkip").onclick = () => commit(true);
 $("edCancel").onclick = () => $("editor").close();
 
 document.addEventListener("keydown", e => {
-  if (!B || $("remDlg").open) return;   // reminders.js handles keys in its own editor
+  if (!B || $("remDlg").open || $("exportDlg").open) return;   // those dialogs handle their own keys
   if ($("editor").open) return formKeydown(e, () => commit(false));
   if ($("history").hidden || ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
   if (e.key === "ArrowLeft" && !$("prev").disabled) openDay(shift(day, -1));

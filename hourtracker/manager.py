@@ -1,5 +1,5 @@
 """The History / Settings window. Opened from the tray; asking again reuses the open window."""
-import json, re, socket, threading
+import json, os, re, socket, threading
 from datetime import datetime
 
 import webview
@@ -108,6 +108,53 @@ class Api:
                 con.close()
         except Exception:
             core.log_error()
+
+    # ------------------------------------------------------------ export
+
+    def export_info(self):
+        """What the export window starts with: last time's choices and every category ever used."""
+        con = core.get_db()
+        try:
+            used = [r[0] for r in con.execute("""SELECT category FROM entries WHERE status != 'skipped' AND category != ''
+                GROUP BY category ORDER BY COUNT(*) DESC""")]
+        finally:
+            con.close()
+        cfg = core.load_cfg()
+        cats = list(dict.fromkeys(cfg["categories"] + used))
+        return {"categories": cats, "last": cfg.get("export") or {}}
+
+    def export_count(self, opts):
+        con = core.get_db()
+        try:
+            rows = core.export_rows(con, opts)
+            return {"hours": len(rows), "days": len({r[0][:10] for r in rows})}
+        finally:
+            con.close()
+
+    def export_save(self, opts):
+        """Ask where to save, then write the file. None if the person cancelled."""
+        name = f"Hour Tracker {opts['from']} to {opts['to']}.csv" if opts["from"] != opts["to"] else f"Hour Tracker {opts['from']}.csv"
+        picked = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name,
+                                                 file_types=("Spreadsheet (*.csv)",))
+        if not picked:
+            return None
+        path = picked if isinstance(picked, str) else picked[0]
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+        con = core.get_db()
+        try:
+            count = core.write_export(path, core.export_rows(con, opts), opts.get("columns") or [])
+        finally:
+            con.close()
+        cfg = core.load_cfg()
+        cfg["export"] = {k: opts[k] for k in ("range", "columns", "skip_categories") if k in opts}
+        core.save_cfg(cfg)
+        return {"path": path, "hours": count}
+
+    def show_file(self, path):
+        import subprocess
+        if os.path.exists(path):
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
 
     # ------------------------------------------------------------ reminders
 
