@@ -507,11 +507,16 @@ def device_id(con):
 
 
 def ensure_token(cfg):
-    """Every install gets its own secret; the copied sheet script carries it."""
+    """Every install gets its own secret: the pasted sheet script carries it, and a copy of a template
+    sheet takes it from the first sync. Made on first need, so a template user (who never copies
+    the script) gets one too."""
     if not cfg.get("token"):
-        import secrets
-        cfg["token"] = secrets.token_urlsafe(18)
-        save_cfg(cfg)
+        fresh = load_cfg()   # don't save over changes another window made to the settings
+        if not fresh.get("token"):
+            import secrets
+            fresh["token"] = secrets.token_urlsafe(18)
+            save_cfg(fresh)
+        cfg["token"] = fresh["token"]
     return cfg["token"]
 
 
@@ -613,7 +618,9 @@ def phone_test(cfg):
 
 
 def _post(cfg, body):
-    req = urllib.request.Request(cfg["webhook_url"], json.dumps(body).encode(), {"Content-Type": "application/json"})
+    if "token" in body:
+        body["token"] = ensure_token(cfg)
+    req =urllib.request.Request(cfg["webhook_url"], json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=40) as resp:
         raw = resp.read().decode("utf-8", "replace")
     try:
