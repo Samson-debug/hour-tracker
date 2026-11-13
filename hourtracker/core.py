@@ -108,6 +108,42 @@ def set_autostart(on):
                 pass
 
 
+def startup_log(message):
+    """startup.log: one line per tray start and stop, kept short. It shows why the app wasn't running."""
+    try:
+        import ctypes
+        tick = ctypes.windll.kernel32.GetTickCount64
+        tick.restype = ctypes.c_ulonglong
+        path = data_dir() / "startup.log"
+        lines = path.read_text(encoding="utf-8").splitlines()[-300:] if path.exists() else []
+        lines.append(f"{datetime.now():%Y-%m-%d %H:%M:%S}  pid {os.getpid():>6}  "
+                     f"{tick() / 60000:6.1f} min after Windows started  {message}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def ensure_shortcut():
+    """The packaged app adds itself to the Start menu, so it can be found by typing its name."""
+    if not FROZEN:
+        return
+    link = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Hour Tracker.lnk"
+    marker = data_dir() / "shortcut.txt"   # where the shortcut last pointed
+    try:
+        if link.exists() and marker.exists() and marker.read_text(encoding="utf-8") == sys.executable:
+            return
+        import subprocess
+        q = lambda s: "'" + str(s).replace("'", "''") + "'"
+        script = (f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({q(link)}); "
+                  f"$s.TargetPath = {q(sys.executable)}; $s.WorkingDirectory = {q(Path(sys.executable).parent)}; "
+                  f"$s.Description = 'Asks once an hour what you did'; $s.Save()")
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                       creationflags=0x08000000, timeout=30, check=True)   # no console window
+        marker.write_text(sys.executable, encoding="utf-8")
+    except Exception:
+        log_error()
+
+
 def log_error():
     """pythonw has no console, so crashes go to a file next to the data."""
     try:

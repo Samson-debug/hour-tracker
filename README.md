@@ -36,6 +36,7 @@ You need Windows 10 or 11.
 
 After that, the app lives in the taskbar corner as a **blue clock icon** (click the **^** arrow if you don't see it).
 Right-click it for **History**, **Reminders** and **Settings**. It starts with Windows by itself.
+If it isn't running, open the Start menu and type **Hour Tracker**.
 
 ## Answering quickly
 
@@ -82,8 +83,8 @@ No. While it waits it uses about 50 MB of memory and no processor time. The ques
 No. The next question covers every hour since your last answer (up to a day back), and you can fill in older gaps in **History**.
 
 **How do I uninstall it?**
-Right-click the tray icon → **Settings** → untick **Start with Windows**, then **Quit**. Delete the folder.
-To delete your data too, delete `%APPDATA%\HourTracker`.
+Right-click the tray icon → **Settings** → untick **Start with Windows**, then **Quit**. Delete the folder, and its Start menu shortcut: **Hour Tracker.lnk** in
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs`. To delete your data too, delete `%APPDATA%\HourTracker`.
 
 ## For developers
 

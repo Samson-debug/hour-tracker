@@ -1,5 +1,5 @@
 """The tray icon: the only part that stays running. It sleeps until a prompt is due."""
-import socket, subprocess, threading
+import ctypes, socket, subprocess, threading, time
 from datetime import datetime, timedelta
 
 import pystray
@@ -111,7 +111,10 @@ class Tray:
             self.sync()   # a done one-time reminder may have been deleted: tell the sheet and calendar
         con = core.get_db()
         try:
-            pending = len(core.pending_hours(con, self.cfg, now))
+            hours = core.pending_hours(con, self.cfg, now)
+            pending = len(hours)
+            # What the question would be about. (Not its due time: once overdue, that is "now" and changes every tick.)
+            question = (hours[0], pending, core.get_meta(con, "snooze_until")) if hours else None
             force, self.force = self.force, False
             if force and pending and not self.proc:
                 core.set_meta(con, "snooze_until", None)
@@ -126,9 +129,9 @@ class Tray:
             self.open_card()
         if (due and due <= now and pending and not self.proc and not self.card and now >= self.hold_until
                 and self.cfg.get("welcomed")):   # no questions while the first-run screen is still open
-            if self.cfg.get("webhook_url") and self.checked_for != due:
+            if self.cfg.get("webhook_url") and self.checked_for != question:
                 # The hour may have been logged on the phone: look before asking (a few seconds at most).
-                self.checked_for = due
+                self.checked_for = question
                 self.sync(wait=10)
                 return 1
             self.open_popup()
@@ -221,14 +224,28 @@ class Tray:
         self.icon.run(setup=setup)
 
 
+def wait_for_taskbar(limit=90):
+    """Right after logging in, the taskbar may not exist yet; an icon added then can be lost."""
+    find = ctypes.windll.user32.FindWindowW
+    for waited in range(limit):
+        if find("Shell_TrayWnd", None):
+            return waited
+        time.sleep(1)
+    return limit
+
+
 def run():
     lock = socket.socket()
     try:
         lock.bind(("127.0.0.1", 47654))   # one tray icon only
         lock.listen(4)
     except OSError:
+        core.startup_log("another Hour Tracker is already running, so this one closes")
         return
-    tray = Tray()
+    waited = wait_for_taskbar()
+    core.startup_log("taskbar ready" + (f" after waiting {waited} s" if waited else ""))
+    threading.Thread(target=core.ensure_shortcut, daemon=True).start()
+    current = {}
 
     def listen():   # other windows connect here to wake the tray after a change
         while True:
@@ -236,6 +253,25 @@ def run():
                 lock.accept()[0].close()
             except OSError:
                 return
-            tray.wake.set()
+            if current.get("tray"):
+                current["tray"].wake.set()
     threading.Thread(target=listen, daemon=True).start()
-    tray.start()
+
+    for attempt in range(1, 4):   # if the icon fails to start, try again a little later
+        tray = current["tray"] = Tray()
+        try:
+            core.startup_log("tray icon running" + (f" (attempt {attempt})" if attempt > 1 else ""))
+            tray.start()
+        except Exception as e:
+            core.log_error()
+            core.startup_log(f"tray icon failed: {e!r}")
+        else:
+            if tray.stopping:
+                core.startup_log("quit from the menu")
+                return
+            core.startup_log("tray icon ended without Quit")
+        tray.stopping = True
+        tray.wake.set()
+        time.sleep(10)
+        wait_for_taskbar()
+    core.startup_log("gave up after 3 attempts")
