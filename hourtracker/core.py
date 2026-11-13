@@ -109,6 +109,46 @@ def set_autostart(on):
                 pass
 
 
+def unblock_self():
+    """Unzipping a downloaded zip with Explorer marks every file as "from the internet", and .NET then
+    refuses to load the DLL every window needs. Remove that mark from the app's own files, as
+    PowerShell's Unblock-File does. Costs one check when there is nothing to do."""
+    if not FROZEN:
+        return 0
+    canary = APP_DIR / "_internal" / "pythonnet" / "runtime" / "Python.Runtime.dll"
+    if not os.path.exists(f"{canary}:Zone.Identifier"):
+        return 0
+    removed = 0
+    for folder, _, files in os.walk(APP_DIR):
+        for name in files:
+            try:
+                os.remove(os.path.join(folder, name) + ":Zone.Identifier")
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
+def window_failed(mode):
+    """A window couldn't open: say so, instead of nothing happening. The hourly question and reminder
+    cards are retried every few minutes, so for those the message comes at most once a day."""
+    try:
+        if mode != "--manager":
+            marker = data_dir() / "window_error.txt"
+            today = f"{datetime.now():%Y-%m-%d}"
+            if marker.exists() and marker.read_text(encoding="utf-8") == today:
+                return
+            marker.write_text(today, encoding="utf-8")
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None, "Hour Tracker couldn't open its window.\n\n"
+                  "Quit it from the tray icon and start it again. If that doesn't help, the details are in "
+                  f"hourtracker.log in this folder:\n{data_dir()}",
+            "Hour Tracker", 0x30 | 0x40000)   # warning icon, on top
+    except Exception:
+        pass
+
+
 def startup_log(message):
     """startup.log: one line per tray start and stop, kept short. It shows why the app wasn't running."""
     try:

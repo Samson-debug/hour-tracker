@@ -4,9 +4,17 @@ import sys
 
 def main():
     from . import core
-    tray_mode = not any(a in sys.argv for a in ("--popup", "--remind", "--manager"))
+    mode = next((a for a in ("--popup", "--remind", "--manager") if a in sys.argv), None)
+    tray_mode = mode is None
     if tray_mode:
         core.startup_log("starting")
+    try:
+        removed = core.unblock_self()
+        if removed:
+            core.startup_log(f"removed the downloaded-file mark from {removed} app files")
+    except Exception:
+        core.log_error()
+    if tray_mode:
         try:   # a hard crash (not a Python error) still leaves its trace in crash.log
             import faulthandler
             faulthandler.enable(open(core.data_dir() / "crash.log", "a", encoding="utf-8"))
@@ -29,6 +37,8 @@ def main():
         core.log_error()
         if tray_mode:
             core.startup_log(f"stopped by an error: {e!r} (details in hourtracker.log)")
+        else:
+            core.window_failed(mode)
         sys.exit(1)
 
 
